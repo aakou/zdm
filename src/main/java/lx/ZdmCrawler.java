@@ -1,5 +1,18 @@
 package lx;
 
+import cn.hutool.core.io.IORuntimeException;
+import cn.hutool.http.ContentType;
+import cn.hutool.http.HttpException;
+import cn.hutool.http.HttpUtil;
+import com.alibaba.fastjson.JSONObject;
+import lx.model.Zdm;
+import lx.utils.StreamUtils;
+import lx.utils.Utils;
+import org.apache.commons.lang3.StringUtils;
+
+import javax.mail.*;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -8,34 +21,10 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
-import javax.mail.Authenticator;
-import javax.mail.Message;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Session;
-import javax.mail.Transport;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-
-import org.apache.commons.lang3.StringUtils;
-
-import com.alibaba.fastjson.JSONObject;
-
-import cn.hutool.core.io.IORuntimeException;
-import cn.hutool.http.HttpException;
-import cn.hutool.http.HttpUtil;
-import lx.model.Zdm;
-import lx.utils.StreamUtils;
-import lx.utils.Utils;
-
+import static lx.utils.Const.WXPUSHER_URL;
 import static lx.utils.Const.ZDM_URL;
 
 public class ZdmCrawler {
@@ -48,7 +37,7 @@ public class ZdmCrawler {
                             String s = HttpUtil.get(url + i, 10000);
                             List<Zdm> zdmPart = JSONObject.parseArray(s, Zdm.class);
                             zdmPart.forEach(zdm -> {
-                                //将评论和点值数量的值后面会跟着'k','w'这种字符,将它们转换一下方便后面过滤和排序
+                                //评论和点值数量的值后面会跟着'k','w'这种字符,将它们转换一下方便后面过滤和排序
                                 zdm.setComments(Utils.strNumberFormat(zdm.getComments()));
                                 zdm.setVoted(Utils.strNumberFormat(zdm.getVoted()));
                             });
@@ -116,16 +105,31 @@ public class ZdmCrawler {
         zdms.forEach(z -> System.out.println(z.getArticleId() + " | " + z.getTitle()));
 
         if (zdms.size() > Integer.parseInt(System.getenv("MIN_PUSH_SIZE"))) {
-            sendEmail(Utils.buildMessage(new ArrayList<>(zdms)));
+            //生成推送消息的正文内容(html格式)
+            String text = Utils.buildMessage(new ArrayList<>(zdms));
+            //通过邮箱推送
+            if (StringUtils.isNotBlank(System.getenv("emailHost")))
+                sendEmail(text);
+            //通过WxPusher推送
+            if (StringUtils.isNotBlank(System.getenv("spt")))
+                sendWx(text);
+            //记录已推送的优惠信息
             Utils.write("./logs/" + LocalDate.now() + "/pushed.txt", true, StreamUtils.map(zdms, Zdm::getArticleId));
         } else {
+            //记录暂未推送的优惠信息
             Utils.write("./unpushed.txt", false, StreamUtils.map(zdms, JSONObject::toJSONString));
         }
     }
 
     public static void sendEmail(String text) {
+        String emailHost = System.getenv("emailHost"), emailAccount = System.getenv("emailAccount"), emailPassword = System.getenv("emailPassword");
+        if (StringUtils.isBlank(emailHost) || StringUtils.isBlank(emailAccount) || StringUtils.isBlank(emailPassword)) {
+            System.out.println("邮箱推送配置不完整,将尝试其他推送方式");
+            return;
+        }
+
         Properties props = new Properties();
-        props.setProperty("mail.smtp.host", System.getenv("emailHost"));
+        props.setProperty("mail.smtp.host", emailHost);
         props.setProperty("mail.smtp.port", "465");
         props.setProperty("mail.smtp.auth", "true");
         props.setProperty("mail.smtp.ssl.enable", "true");
@@ -133,13 +137,13 @@ public class ZdmCrawler {
             Session session = Session.getDefaultInstance(props, new Authenticator() {
                 @Override
                 public PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(System.getenv("emailAccount"), System.getenv("emailPassword"));
+                    return new PasswordAuthentication(emailAccount, emailPassword);
                 }
             });
 
             MimeMessage message = new MimeMessage(session);
-            message.setFrom(System.getenv("emailAccount"));
-            message.addRecipient(Message.RecipientType.TO, new InternetAddress(System.getenv("emailAccount")));
+            message.setFrom(emailAccount);
+            message.addRecipient(Message.RecipientType.TO, new InternetAddress(emailAccount));
             message.setSubject(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now()));
             message.setContent(text, "text/html;charset=UTF-8");
             Transport.send(message);
@@ -147,5 +151,31 @@ public class ZdmCrawler {
             e.printStackTrace();
             throw new RuntimeException("邮件发送失败");
         }
+    }
+
+    public static void sendWx(String text) {
+        String spt = System.getenv("spt");
+        if (StringUtils.isBlank(spt)) {
+            System.out.println("WxPusher推送配置不完整,将尝试其他推送方式");
+            return;
+        }
+        HashMap<String, Object> body = new HashMap<>();
+        //推送内容
+        body.put("content", text);
+        //消息摘要，显示在微信聊天页面或者模版消息卡片上，限制长度20(微信只能显示20)，可以不传，不传默认截取content前面的内容。
+        body.put("summary", "zdm优惠信息" + DateTimeFormatter.ofPattern("MM-dd HH:mm").format(LocalDateTime.now()));
+        //内容类型 1表示文字  2表示html 3表示markdown
+        body.put("contentType", "2");
+        body.put("spt", System.getenv("spt"));
+        String response = HttpUtil.createPost(WXPUSHER_URL)
+                .contentType(ContentType.JSON.getValue())
+                .body(JSONObject.toJSONString(body))
+                .execute().body();
+        System.out.println("WxPusher response:" + response);
+        JSONObject jsonObject = (JSONObject) JSONObject.parse(response);
+        //状态码,非1000表示有异常
+        String code = jsonObject.getString("code");
+        if (!"1000".equals(code))
+            throw new RuntimeException("WxPusher推送失败:" + jsonObject.getString("msg"));
     }
 }
