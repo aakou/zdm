@@ -40,7 +40,7 @@ public class Zdm implements Crawlable {
     @Override
     public String toHtmlTr() {
         return "<tr>" +
-                "<td><img src='" + picUrl + "'/></td>" +
+                "<td><img width='120px' height='120px' src='" + picUrl + "'/></td>" +
                 "<td>" + title + "</td>" +
                 "<td>" + price + "</td>" +
                 "<td>" + voted + "/" + comments + "</td>" +
