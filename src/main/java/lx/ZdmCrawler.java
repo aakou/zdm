@@ -21,7 +21,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -36,6 +35,9 @@ public class ZdmCrawler {
                 emailPassword = System.getenv("emailPassword"), spt = System.getenv("spt");
         int minVoted = Integer.parseInt(System.getenv("minVoted")), minComments = Integer.parseInt(System.getenv("minComments")),
                 minPushSize = Integer.parseInt(System.getenv("MIN_PUSH_SIZE"));
+
+        //git actions部署的服务器一般在海外,调整为东八区的时区
+        TimeZone.setDefault(TimeZone.getTimeZone("GMT+8"));
 
         Set<Zdm> zdms = ZDM_URL.stream().flatMap(url -> {
                     List<Zdm> zdmPage = new ArrayList<>();
@@ -154,7 +156,7 @@ public class ZdmCrawler {
             MimeMessage message = new MimeMessage(session);
             message.setFrom(emailAccount);
             message.addRecipient(Message.RecipientType.TO, new InternetAddress(emailAccount));
-            message.setSubject("zdm优惠信息汇总" + DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now().atZone(ZoneId.of("GMT+8"))));
+            message.setSubject("zdm优惠信息汇总" + DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now()));
             message.setContent(text, "text/html;charset=UTF-8");
             Transport.send(message);
         } catch (Exception e) {
