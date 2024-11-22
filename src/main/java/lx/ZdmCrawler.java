@@ -5,6 +5,7 @@ import cn.hutool.http.ContentType;
 import cn.hutool.http.HttpException;
 import cn.hutool.http.HttpUtil;
 import com.alibaba.fastjson.JSONObject;
+import com.google.common.collect.Lists;
 import lx.model.Zdm;
 import lx.utils.StreamUtils;
 import lx.utils.Utils;
@@ -30,6 +31,11 @@ import static lx.utils.Const.ZDM_URL;
 public class ZdmCrawler {
 
     public static void main(String[] args) {
+        String emailHost = System.getenv("emailHost"), emailAccount = System.getenv("emailAccount"),
+                emailPassword = System.getenv("emailPassword"), spt = System.getenv("spt");
+        int minVoted = Integer.parseInt(System.getenv("minVoted")), minComments = Integer.parseInt(System.getenv("minComments")),
+                minPushSize = Integer.parseInt(System.getenv("MIN_PUSH_SIZE"));
+
         Set<Zdm> zdms = ZDM_URL.stream().flatMap(url -> {
                     List<Zdm> zdmPage = new ArrayList<>();
                     for (int i = 1; i <= 20; i++) {//爬取前20页数据
@@ -55,11 +61,7 @@ public class ZdmCrawler {
         HashSet<String> unPushed = Utils.readFile("./unpushed.txt");
         zdms.addAll(StreamUtils.map(unPushed, o -> JSONObject.parseObject(o, Zdm.class)));
 
-        //黑词过滤
-        HashSet<String> blackWords = Utils.readFile("./black_words.txt");
-        blackWords.removeIf(StringUtils::isBlank);
-
-        //已推送的优惠信息id
+        //已推送的优惠信息
         Set<String> pushedIds;
         try {
             new File("./logs/").mkdirs();
@@ -73,6 +75,10 @@ public class ZdmCrawler {
             throw new RuntimeException("读取logs目录失败");
         }
 
+        //黑词过滤
+        HashSet<String> blackWords = Utils.readFile("./black_words.txt");
+        blackWords.removeIf(StringUtils::isBlank);
+
         //白词过滤内容
         HashSet<String> whiteWords = Utils.readFile("./white_words.txt");
         whiteWords.removeIf(StringUtils::isBlank);
@@ -82,8 +88,8 @@ public class ZdmCrawler {
             System.out.println("whiteWords is empty, running in blackWords mode.");
             zdms = new HashSet<>(StreamUtils.filter(zdms, z ->
                     StringUtils.isBlank(StreamUtils.findFirst(blackWords, w -> z.getTitle().contains(w))) //黑词过滤
-                            && Integer.parseInt(z.getVoted()) > Integer.parseInt(System.getenv("minVoted")) //值的数量
-                            && Integer.parseInt(z.getComments()) > Integer.parseInt(System.getenv("minComments")) //评论的数量
+                            && Integer.parseInt(z.getVoted()) > minVoted //值的数量
+                            && Integer.parseInt(z.getComments()) > minComments //评论的数量
                             && !z.getPrice().contains("前") //不是前xxx名的耍猴抢购
                             && !pushedIds.contains(z.getArticleId()) //不是已经推送过的
             ));
@@ -95,8 +101,8 @@ public class ZdmCrawler {
             }
             zdms = new HashSet<>(StreamUtils.filter(zdms, z ->
                     !StringUtils.isBlank(StreamUtils.findFirst(whiteWords, w -> z.getTitle().contains(w))) //白词过滤
-                            && Integer.parseInt(z.getVoted()) > Integer.parseInt(System.getenv("minVoted")) //值的数量
-                            && Integer.parseInt(z.getComments()) > Integer.parseInt(System.getenv("minComments")) //评论的数量
+                            && Integer.parseInt(z.getVoted()) > minVoted //值的数量
+                            && Integer.parseInt(z.getComments()) > minComments //评论的数量
                             && !z.getPrice().contains("前") //不是前xxx名的耍猴抢购
                             && !pushedIds.contains(z.getArticleId()) //不是已经推送过的
             ));
@@ -104,25 +110,28 @@ public class ZdmCrawler {
 
         zdms.forEach(z -> System.out.println(z.getArticleId() + " | " + z.getTitle()));
 
-        if (zdms.size() > Integer.parseInt(System.getenv("MIN_PUSH_SIZE"))) {
-            //生成推送消息的正文内容(html格式)
-            String text = Utils.buildMessage(new ArrayList<>(zdms));
-            //通过邮箱推送
-            if (StringUtils.isNotBlank(System.getenv("emailHost")))
-                sendEmail(text);
-            //通过WxPusher推送
-            if (StringUtils.isNotBlank(System.getenv("spt")))
-                sendWx(text);
-            //记录已推送的优惠信息
-            Utils.write("./logs/" + LocalDate.now() + "/pushed.txt", true, StreamUtils.map(zdms, Zdm::getArticleId));
-        } else {
+        //优惠信息单次推送的数量阈值,未达到阈值则暂存推送信息等待下次运行
+        if (zdms.size() < minPushSize) {
             //记录暂未推送的优惠信息
             Utils.write("./unpushed.txt", false, StreamUtils.map(zdms, JSONObject::toJSONString));
+            return;
         }
+
+        //部分推送方式存在内容长度限制, 这里加了单次推送的条数限制, 超出则分批推送
+        Lists.partition(new ArrayList<>(zdms), 100).forEach(part -> {
+            //生成推送消息的正文内容(html格式)
+            String text = Utils.buildMessage(new ArrayList<>(part));
+            //通过邮箱推送
+            pushToEmail(text, emailHost, emailAccount, emailPassword);
+            //通过WxPusher推送
+            pushToWx(text, spt);
+            //记录已推送的优惠信息
+            List<String> articleIds = StreamUtils.map(part, Zdm::getArticleId);
+            Utils.write("./logs/" + LocalDate.now() + "/pushed.txt", true, articleIds);
+        });
     }
 
-    public static void sendEmail(String text) {
-        String emailHost = System.getenv("emailHost"), emailAccount = System.getenv("emailAccount"), emailPassword = System.getenv("emailPassword");
+    private static void pushToEmail(String text, String emailHost, String emailAccount, String emailPassword) {
         if (StringUtils.isBlank(emailHost) || StringUtils.isBlank(emailAccount) || StringUtils.isBlank(emailPassword)) {
             System.out.println("邮箱推送配置不完整,将尝试其他推送方式");
             return;
@@ -153,8 +162,7 @@ public class ZdmCrawler {
         }
     }
 
-    public static void sendWx(String text) {
-        String spt = System.getenv("spt");
+    private static void pushToWx(String text, String spt) {
         if (StringUtils.isBlank(spt)) {
             System.out.println("WxPusher推送配置不完整,将尝试其他推送方式");
             return;
