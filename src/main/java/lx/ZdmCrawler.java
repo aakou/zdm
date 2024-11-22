@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -153,7 +154,7 @@ public class ZdmCrawler {
             MimeMessage message = new MimeMessage(session);
             message.setFrom(emailAccount);
             message.addRecipient(Message.RecipientType.TO, new InternetAddress(emailAccount));
-            message.setSubject(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now()));
+            message.setSubject("zdm优惠信息汇总" + DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now().atZone(ZoneId.of("GMT+8"))));
             message.setContent(text, "text/html;charset=UTF-8");
             Transport.send(message);
         } catch (Exception e) {
@@ -171,7 +172,7 @@ public class ZdmCrawler {
         //推送内容
         body.put("content", text);
         //消息摘要，显示在微信聊天页面或者模版消息卡片上，限制长度20(微信只能显示20)，可以不传，不传默认截取content前面的内容。
-        body.put("summary", "zdm优惠信息" + DateTimeFormatter.ofPattern("MM-dd HH:mm").format(LocalDateTime.now()));
+        body.put("summary", "zdm优惠信息汇总");
         //内容类型 1表示文字  2表示html 3表示markdown
         body.put("contentType", "2");
         body.put("spt", System.getenv("spt"));
