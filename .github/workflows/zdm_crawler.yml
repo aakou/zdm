@@ -35,8 +35,6 @@ jobs:
         emailAccount: ${{secrets.emailAccount}}
         # 接收优惠信息的邮箱的授权码 为空代表不进行邮箱推送
         emailPassword: ${{secrets.emailPassword}}
-        # WxPusher极简推送模式的spt 为空代表不进行Wx推送
-        spt: ${{secrets.spt}}
       run: java -jar zdm.jar
     #保存已推送和暂未推送的优惠信息
     - name: git add files
