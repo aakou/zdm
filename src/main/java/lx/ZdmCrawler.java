@@ -1,27 +1,43 @@
 package lx;
 
-import cn.hutool.core.io.IORuntimeException;
-import cn.hutool.http.ContentType;
-import cn.hutool.http.HttpException;
-import cn.hutool.http.HttpUtil;
-import com.alibaba.fastjson.JSONObject;
-import com.google.common.collect.Lists;
-import lx.mapper.ZdmMapper;
-import lx.model.Zdm;
-import lx.utils.StreamUtils;
-import lx.utils.Utils;
-import org.apache.commons.lang3.StringUtils;
-
-import javax.mail.*;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.TimeZone;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import javax.mail.Authenticator;
+import javax.mail.Message;
+import javax.mail.PasswordAuthentication;
+import javax.mail.Session;
+import javax.mail.Transport;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+
+import org.apache.commons.lang3.StringUtils;
+
+import com.alibaba.fastjson.JSONObject;
+import com.google.common.collect.Lists;
+
+import cn.hutool.core.io.IORuntimeException;
+import cn.hutool.http.ContentType;
+import cn.hutool.http.HttpException;
+import cn.hutool.http.HttpUtil;
+import lx.mapper.ZdmMapper;
+import lx.model.Zdm;
+import lx.utils.StreamUtils;
+import lx.utils.Utils;
 
 import static lx.utils.Const.WXPUSHER_URL;
 import static lx.utils.Const.ZDM_URL;
@@ -29,8 +45,6 @@ import static lx.utils.Const.ZDM_URL;
 public class ZdmCrawler {
 
     public static void main(String[] args) {
-        if (true)
-            throw new RuntimeException("下班了,来不及改代码,先上传了");
         //突然发现定环境变量名的时候一下子大写下划线,一下子小写驼峰. 考虑到之前已经有在用的用户了, 暂时不做修改了
         Map<String, String> envMap = System.getenv();
         String emailHost = System.getenv("emailHost"), emailAccount = System.getenv("emailAccount"),
@@ -66,8 +80,8 @@ public class ZdmCrawler {
             pushToWx(text, spt);
 
             //推送完成后,pushed字段置为1
-            List<String> articleIds = StreamUtils.map(part, Zdm::getArticleId);
-            ZdmMapper.markAsPushed(articleIds);
+            part.forEach(o -> o.setPushed(true));
+            ZdmMapper.saveOrUpdateBatch(part);
         });
     }
 
@@ -95,7 +109,7 @@ public class ZdmCrawler {
                         String timestampStr = zdm.getTimesort() + "000";
                         zdm.setArticle_time(Instant.ofEpochMilli(Long.parseLong(timestampStr))
                                 .atZone(zoneId)
-                                .toLocalDateTime());
+                                .toLocalDateTime().toString());
                     });
                     zdmPage.addAll(zdmPart);
                 } catch (IORuntimeException | HttpException e) {

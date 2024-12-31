@@ -10,8 +10,7 @@
         <property name="hibernate.hbm2ddl.auto">update</property>
         <property name="show_sql">true</property>
         <property name="hibernate.temp.use_jdbc_metadata_defaults">false</property>
-        <!-- 扫描实体类 -->
+        <mapping class="lx.model.Zdm"/>
         <mapping resource="Zdm.hbm.xml"/>
-        <!-- ... 其他实体类映射 ... -->
     </session-factory>
 </hibernate-configuration>

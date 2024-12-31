@@ -43,7 +43,7 @@ public class Zdm implements Crawlable {
     @JSONField(name = "timesort")
     String timesort;
 
-    LocalDateTime article_time;
+    String article_time;
 
     Boolean pushed;
 
