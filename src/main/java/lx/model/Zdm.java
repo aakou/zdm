@@ -2,17 +2,21 @@ package lx.model;
 
 import com.alibaba.fastjson.annotation.JSONField;
 import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 import lombok.experimental.FieldDefaults;
 
+import javax.persistence.*;
+import java.time.LocalDateTime;
 import java.util.Objects;
 
-@Getter
-@Setter
+@Data
 @FieldDefaults(level = AccessLevel.PRIVATE)
+@Entity
+@Table(name = "ZDM")
 public class Zdm implements Crawlable {
 
+    //主键用值得买接口提供的id
+    @Id
     @JSONField(name = "article_id")
     String articleId;
 
@@ -33,6 +37,13 @@ public class Zdm implements Crawlable {
     String comments;
     @JSONField(name = "article_mall")
     String articleMall;
+
+    //不持久化进数据库
+    @Transient
+    @JSONField(name = "timesort")
+    String timesort;
+
+    LocalDateTime article_time;
 
     Boolean pushed;
 
