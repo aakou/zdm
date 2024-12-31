@@ -39,8 +39,7 @@ jobs:
     #保存已推送和暂未推送的优惠信息
     - name: git add files
       run: |
-        git add unpushed.txt
-        git add ./logs/
+        git add database.db
     - name: commit & push
       uses: actions-go/push@master
       with:

@@ -8,6 +8,10 @@ import java.io.FileWriter;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -16,13 +20,13 @@ import lx.model.Crawlable;
 
 public class Utils {
 
-    public static String buildMessage(List<? extends Crawlable> zdms) {
-        zdms.sort(Comparator.comparingInt(Crawlable::obtainSortOrder).reversed());
+    public static String buildMessage(List<? extends Crawlable> list) {
+        list.sort(Comparator.comparingInt(Crawlable::obtainSortOrder).reversed());
 
         StringBuilder s = new StringBuilder();
         s.append("<table border='1'>");
         s.append("<tr><th width='20%'>图</th><th width='45%'>标题</th><th width='15%'>价格</th><th width='10%'>赞/评</th><th width='10%'>平台</th></tr>");
-        zdms.forEach(z -> s.append(z.toHtmlTr()));
+        list.forEach(z -> s.append(z.toHtmlTr()));
         s.append("</table>");
         return s.toString();
     }
