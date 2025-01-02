@@ -58,9 +58,11 @@ public class ZdmCrawler {
             //生成推送消息的正文内容(html格式)
             String text = Utils.buildMessage(part);
             //通过邮箱推送
-            pushToEmail(text, emailHost, emailPort, emailAccount, emailPassword);
+            boolean pushToEmail = pushToEmail(text, emailHost, emailPort, emailAccount, emailPassword);
             //通过WxPusher推送
-            pushToWx(text, spt);
+            boolean pushToWx = pushToWx(text, spt);
+            if (!pushToEmail && !pushToWx)
+                throw new RuntimeException("未匹配到推送方式,请检查配置");
 
             //推送完成后,pushed字段置为已推送
             part.forEach(o -> o.setPushed(true));
@@ -148,11 +150,11 @@ public class ZdmCrawler {
         return filtered;
     }
 
-    private static void pushToEmail(String text, String emailHost, String emailPort, String emailAccount, String emailPassword) {
+    private static boolean pushToEmail(String text, String emailHost, String emailPort, String emailAccount, String emailPassword) {
         if (StringUtils.isBlank(emailHost) || StringUtils.isBlank(emailPort)
                 || StringUtils.isBlank(emailAccount) || StringUtils.isBlank(emailPassword)) {
             System.out.println("邮箱推送配置不完整,将尝试其他推送方式");
-            return;
+            return false;
         }
 
         Properties props = new Properties();
@@ -174,18 +176,19 @@ public class ZdmCrawler {
             message.setSubject("zdm优惠信息汇总" + DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(LocalDateTime.now()));
             message.setContent(text, "text/html;charset=UTF-8");
             Transport.send(message);
+            return true;
         } catch (Exception e) {
             e.printStackTrace();
             throw new RuntimeException("邮件发送失败");
         }
     }
 
-    private static void pushToWx(String text, String spt) {
+    private static boolean pushToWx(String text, String spt) {
         if (StringUtils.isBlank(spt)) {
             System.out.println("WxPusher推送配置不完整,将尝试其他推送方式");
-            return;
+            return false;
         }
-        
+
         HashMap<String, Object> body = new HashMap<>();
         //推送内容
         body.put("content", text);
@@ -204,5 +207,6 @@ public class ZdmCrawler {
         String code = jsonObject.getString("code");
         if (!"1000".equals(code))
             throw new RuntimeException("WxPusher推送失败:" + jsonObject.getString("msg"));
+        return true;
     }
 }
