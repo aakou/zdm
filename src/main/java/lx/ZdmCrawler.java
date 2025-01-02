@@ -1,43 +1,27 @@
 package lx;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.TimeZone;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import javax.mail.Authenticator;
-import javax.mail.Message;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Session;
-import javax.mail.Transport;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-
-import org.apache.commons.lang3.StringUtils;
-
-import com.alibaba.fastjson.JSONObject;
-import com.google.common.collect.Lists;
-
 import cn.hutool.core.io.IORuntimeException;
 import cn.hutool.http.ContentType;
 import cn.hutool.http.HttpException;
 import cn.hutool.http.HttpUtil;
+import com.alibaba.fastjson.JSONObject;
+import com.google.common.collect.Lists;
 import lx.mapper.ZdmMapper;
 import lx.model.Zdm;
 import lx.utils.StreamUtils;
 import lx.utils.Utils;
+import org.apache.commons.lang3.StringUtils;
+
+import javax.mail.*;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static lx.utils.Const.WXPUSHER_URL;
 import static lx.utils.Const.ZDM_URL;
@@ -48,20 +32,19 @@ public class ZdmCrawler {
         //突然发现定环境变量名的时候一下子大写下划线,一下子小写驼峰. 考虑到之前已经有在用的用户了, 暂时不做修改了
         Map<String, String> envMap = System.getenv();
         String emailHost = System.getenv("emailHost"), emailAccount = System.getenv("emailAccount"),
-                emailPassword = System.getenv("emailPassword"), spt = System.getenv("spt");
-        int maxPageSize = Integer.parseInt(envMap.getOrDefault("maxPageSize", "5")),
+                emailPassword = System.getenv("emailPassword"), emailPort = envMap.getOrDefault("emailPort", "465"),
+                spt = System.getenv("spt");
+        int maxPageSize = Integer.parseInt(envMap.getOrDefault("maxPageSize", "20")),
                 minVoted = Integer.parseInt(envMap.getOrDefault("minVoted", "0")),
                 minComments = Integer.parseInt(envMap.getOrDefault("minComments", "0")),
                 minPushSize = Integer.parseInt(envMap.getOrDefault("MIN_PUSH_SIZE", "0"));
+        boolean detail = "true".equals(envMap.getOrDefault("detail", "false"));
 
         //获取待推送的优惠信息
         Collection<Zdm> zdms = obtainUnpushedArticles(maxPageSize);
 
         //根据各项规则执行过滤逻辑
-        zdms = processFilter(zdms, minVoted, minComments);
-
-        System.out.println("待推送的优惠信息:");
-        zdms.forEach(z -> System.out.println(z.getArticleId() + " | " + z.getTitle()));
+        zdms = processFilter(zdms, minVoted, minComments, detail);
 
         //在推送之前先入库数据,pushed字段默认为0(未推送)
         ZdmMapper.saveOrUpdateBatch(zdms);
@@ -73,20 +56,20 @@ public class ZdmCrawler {
         //部分推送方式存在内容长度限制, 这里加了单次推送的条数限制, 超出则分批推送
         Lists.partition(new ArrayList<>(zdms), 100).forEach(part -> {
             //生成推送消息的正文内容(html格式)
-            String text = Utils.buildMessage(new ArrayList<>(part));
+            String text = Utils.buildMessage(part);
             //通过邮箱推送
-            pushToEmail(text, emailHost, emailAccount, emailPassword);
+            pushToEmail(text, emailHost, emailPort, emailAccount, emailPassword);
             //通过WxPusher推送
             pushToWx(text, spt);
 
-            //推送完成后,pushed字段置为1
+            //推送完成后,pushed字段置为已推送
             part.forEach(o -> o.setPushed(true));
             ZdmMapper.saveOrUpdateBatch(part);
         });
     }
 
     private static Collection<Zdm> obtainUnpushedArticles(int maxPageSize) {
-        //git actions部署的服务器一般在海外,调整为东八区的时区
+        //GitHub Actions部署的服务器一般在海外,调整为东八区的时区
         ZoneId zoneId = ZoneId.of("GMT+8");
         TimeZone.setDefault(TimeZone.getTimeZone(zoneId));
 
@@ -125,7 +108,7 @@ public class ZdmCrawler {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    private static List<Zdm> processFilter(Collection<Zdm> zdms, int minVoted, int minComments) {
+    private static List<Zdm> processFilter(Collection<Zdm> zdms, int minVoted, int minComments, boolean detail) {
         //黑词过滤
         HashSet<String> blackWords = Utils.readFile("./black_words.txt");
         blackWords.removeIf(StringUtils::isBlank);
@@ -136,11 +119,13 @@ public class ZdmCrawler {
 
         if (whiteWords.isEmpty()) {
             //如果白词文件为空，则使用原来的黑词模式
-            System.out.println("whiteWords is empty, running in blackWords mode. blackWords list:\n" + String.join(",", blackWords));
+            if (detail)
+                System.out.println("whiteWords is empty, running in blackWords mode. blackWords list:\n" + String.join(",", blackWords));
             zdms = StreamUtils.filter(zdms, z -> StringUtils.isBlank(StreamUtils.findFirst(blackWords, w -> z.getTitle().contains(w))));
         } else {
             //如果白词文件不为空，则启用新的白词模式，仅发送包含白名单中的商品优惠信息
-            System.out.println("whiteWords is not empty, running in whiteWords mode. whiteWords list:\n" + String.join(",", whiteWords));
+            if (detail)
+                System.out.println("whiteWords is not empty, running in whiteWords mode. whiteWords list:\n" + String.join(",", whiteWords));
             zdms = StreamUtils.filter(zdms, z -> !StringUtils.isBlank(StreamUtils.findFirst(whiteWords, w -> z.getTitle().contains(w))));
         }
 
@@ -148,23 +133,31 @@ public class ZdmCrawler {
         Collection<String> pushedIds = ZdmMapper.pushedIds();
 
         //执行其他过滤规则
-        return StreamUtils.filter(zdms, z ->
+        List<Zdm> filtered = StreamUtils.filter(zdms, z ->
                 Integer.parseInt(z.getVoted()) > minVoted //值的数量
                         && Integer.parseInt(z.getComments()) > minComments //评论的数量
                         && !z.getPrice().contains("前") //不是前xxx名的耍猴抢购
                         && !pushedIds.contains(z.getArticleId()) //不是已经推送过的
         );
+
+        filtered.forEach(o -> o.setPushed(false));
+        if (detail) {
+            System.out.println("待推送的优惠信息:");
+            filtered.forEach(z -> System.out.println(z.getArticleId() + " | " + z.getTitle()));
+        }
+        return filtered;
     }
 
-    private static void pushToEmail(String text, String emailHost, String emailAccount, String emailPassword) {
-        if (StringUtils.isBlank(emailHost) || StringUtils.isBlank(emailAccount) || StringUtils.isBlank(emailPassword)) {
+    private static void pushToEmail(String text, String emailHost, String emailPort, String emailAccount, String emailPassword) {
+        if (StringUtils.isBlank(emailHost) || StringUtils.isBlank(emailPort)
+                || StringUtils.isBlank(emailAccount) || StringUtils.isBlank(emailPassword)) {
             System.out.println("邮箱推送配置不完整,将尝试其他推送方式");
             return;
         }
 
         Properties props = new Properties();
         props.setProperty("mail.smtp.host", emailHost);
-        props.setProperty("mail.smtp.port", "465");
+        props.setProperty("mail.smtp.port", emailPort);
         props.setProperty("mail.smtp.auth", "true");
         props.setProperty("mail.smtp.ssl.enable", "true");
         try {
@@ -192,6 +185,7 @@ public class ZdmCrawler {
             System.out.println("WxPusher推送配置不完整,将尝试其他推送方式");
             return;
         }
+        
         HashMap<String, Object> body = new HashMap<>();
         //推送内容
         body.put("content", text);
