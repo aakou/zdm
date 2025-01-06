@@ -1,0 +1,10 @@
+*.db
+*.log
+env/*
+__pycache__
+.vscode/*
+logs/*
+output/*
+comics/*
+.vscode
+.env
