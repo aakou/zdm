@@ -106,7 +106,7 @@ public class ZdmCrawler {
         });
 
         return Stream.concat(crawled, unPush.stream())  //两个stream合并,一起参与排序和去重操作
-                .sorted(Comparator.comparing(Zdm::getComments).reversed())    //评论数量倒序,用LinkedHashSet保证有序
+                .sorted(Comparator.comparing(Zdm::getComments, Comparator.comparingInt(Integer::parseInt)).reversed())    //评论数量倒序,用LinkedHashSet保证有序
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
