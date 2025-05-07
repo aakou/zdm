@@ -60,7 +60,7 @@ public class ZdmCrawler {
                 minVoted = Integer.parseInt(envMap.getOrDefault("minVoted", "0")),
                 minComments = Integer.parseInt(envMap.getOrDefault("minComments", "0")),
                 minPushSize = Integer.parseInt(envMap.getOrDefault("MIN_PUSH_SIZE", "0"));
-        boolean detail = "true" .equals(envMap.getOrDefault("detail", "false"));
+        boolean detail = "true".equals(envMap.getOrDefault("detail", "false"));
 
         //获取待推送的优惠信息
         Collection<Zdm> zdms = obtainUnpushedArticles(maxPageSize);
@@ -110,13 +110,14 @@ public class ZdmCrawler {
             List<Zdm> zdmPage = new ArrayList<>();
             for (int i = 1; i <= maxPageSize; i++) {
                 try {
+                    /**
+                     * 2025-05-08 什么值得买的这个接口似乎加了反爬虫机制,偶尔会返回一段js的验证码,导致JSONObject解析json时报错
+                     * 分别尝试了cn.hutool.http.HttpUtil 和 java.net.http.HttpRequest两个接口调用工具,发现HttpUtil会出现上述问题,可能是这两种调用方式生成的请求头有所不同导致的?
+                     * 总之不太清楚是触发了什么反爬虫的规则.有懂哥可以帮忙看看
+                     */
                     HttpRequest httpRequest = HttpRequest.newBuilder().GET().uri(URI.create(url + i)).build();
                     String s = client.send(httpRequest, HttpResponse.BodyHandlers.ofString()).body();
-                    /**
-                     * 2025-05-05 这个接口似乎加了反爬虫机制,偶尔会返回一段js的验证码,导致解析json的逻辑报错了
-                     * 我分别尝试了cn.hutool.http.HttpUtil 和 java.net.http.HttpRequest两个接口调用工具,发现HttpUtil就会出现上述问题
-                     * 不太清楚是触发了什么反爬虫的规则.暂时先换个接口调用工具看看问题是否还存在.有懂哥可以帮忙看看
-                     */
+
                     List<Zdm> zdmPart = JSONObject.parseArray(s, Zdm.class);
                     zdmPart.forEach(zdm -> {
                         //评论和点值数量的值后面会跟着'k','w'这种字符,将它们转换一下方便后面过滤和排序
@@ -238,7 +239,7 @@ public class ZdmCrawler {
         JSONObject jsonObject = (JSONObject) JSONObject.parse(response);
         //状态码,非1000表示有异常
         String code = jsonObject.getString("code");
-        if (!"1000" .equals(code))
+        if (!"1000".equals(code))
             throw new RuntimeException("WxPusher推送失败:" + jsonObject.getString("msg"));
         return true;
     }
