@@ -1,5 +1,6 @@
 package lx;
 
+import java.net.HttpCookie;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TimeZone;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -25,6 +27,8 @@ import javax.mail.Transport;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 
+import cn.hutool.core.thread.ThreadUtil;
+import cn.hutool.http.HttpRequest;
 import org.apache.commons.lang3.StringUtils;
 
 import com.alibaba.fastjson.JSONObject;
@@ -38,6 +42,10 @@ import lx.mapper.ZdmMapper;
 import lx.model.Zdm;
 import lx.utils.StreamUtils;
 import lx.utils.Utils;
+import org.openqa.selenium.Cookie;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 
 import static lx.utils.Const.WXPUSHER_URL;
 import static lx.utils.Const.ZDM_URL;
@@ -94,6 +102,17 @@ public class ZdmCrawler {
         //上次执行后未推送的优惠信息
         List<Zdm> unPush = ZdmMapper.unPush();
 
+        /**
+         * 什么值得买的cookie在未登录的状态下是由'__ckguid','x-waf-captcha-referer','w_tsfp'三段组成的
+         * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空, w_tsfp是靠访问probe.js动态生成
+         * 这里支持从selenium模拟浏览器行为自动获取cookie,
+         */
+        HttpRequest request = HttpUtil.createGet("url");
+        if (StringUtils.isNotBlank(cookie))
+            request.header("cookie", cookie);
+        else
+            request.cookie(buildCookies());
+
         //从网页上获取的优惠信息
         Stream<Zdm> crawled = ZDM_URL.stream().flatMap(url -> {
             List<Zdm> zdmPage = new ArrayList<>();
@@ -105,9 +124,7 @@ public class ZdmCrawler {
                      * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空
                      * 比较麻烦的是w_tsfp是靠访问probe.js动态生成的, 看了下selenium的无头浏览器好像能模拟获取到这段内容,有空的时候再改改,顺便给每个请求加个随机延迟时间
                      */
-                    String s = HttpUtil.createGet(url + i)
-                            .header("cookie", cookie)
-                            .execute().body();
+                    String s = request.setUrl(url + i).execute().body();
                     List<Zdm> zdmPart = JSONObject.parseArray(s, Zdm.class);
                     zdmPart.forEach(zdm -> {
                         //评论和点值数量的值后面会跟着'k','w'这种字符,将它们转换一下方便后面过滤和排序
@@ -232,5 +249,26 @@ public class ZdmCrawler {
         if (!"1000".equals(code))
             throw new RuntimeException("WxPusher推送失败:" + jsonObject.getString("msg"));
         return true;
+    }
+
+    private static Collection<HttpCookie> buildCookies() {
+        ChromeOptions options = new ChromeOptions();
+        options.addArguments("--headless");          // 无头模式
+        options.addArguments("--disable-gpu");      // 禁用 GPU 加速（Linux 必备）
+        options.addArguments("--no-sandbox");       // 禁用沙盒（CI 环境必备）
+        options.addArguments("--disable-dev-shm-usage"); // 避免 /dev/shm 不足
+
+        WebDriver driver = new ChromeDriver(options);
+        driver.get("https://faxian.smzdm.com/json_more");
+        Collection<HttpCookie> cookies = new ArrayList<>();
+        cookies.add(new HttpCookie("x-waf-captcha-referer", ""));
+        Cookie ckguid = driver.manage().getCookieNamed("__ckguid");
+        if (ckguid != null)
+            cookies.add(new HttpCookie("__ckguid", ckguid.getValue()));
+        Cookie w_tsfp = driver.manage().getCookieNamed("w_tsfp");
+        if (w_tsfp != null)
+            cookies.add(new HttpCookie("w_tsfp", w_tsfp.getValue()));
+        driver.quit();
+        return cookies;
     }
 }
