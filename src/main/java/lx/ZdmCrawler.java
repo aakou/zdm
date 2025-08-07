@@ -53,7 +53,7 @@ import static lx.utils.Const.ZDM_URL;
 public class ZdmCrawler {
 
     public static void main(String[] args) {
-        //突然发现定环境变量名的时候一下子大写下划线,一下子小写驼峰. 考虑到之前已经有在用的用户了, 暂时不做修改了
+        //突然发现定环境变量名的时候一下子大写下划线,一下子小写驼峰. 考虑到之前已经有在用的用户了, 暂时不做修改
         Map<String, String> envMap = System.getenv();
         String emailHost = System.getenv("emailHost"), emailAccount = System.getenv("emailAccount"),
                 emailPassword = System.getenv("emailPassword"), emailPort = envMap.getOrDefault("emailPort", "465"),
@@ -107,7 +107,7 @@ public class ZdmCrawler {
          * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空, w_tsfp是靠访问probe.js动态生成
          * 这里支持从selenium模拟浏览器行为自动获取cookie,也支持在环境变量里自定义固定的cookie值
          */
-        HttpRequest request = HttpUtil.createGet("url") .contentType(ContentType.JSON.getValue());
+        HttpRequest request = HttpUtil.createGet("url").contentType(ContentType.JSON.getValue());
         if (StringUtils.isNotBlank(cookie))
             request.header("cookie", cookie);
         else
