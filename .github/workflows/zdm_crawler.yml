@@ -25,7 +25,7 @@ jobs:
         key: ${{ runner.os }}-apt-${{ hashFiles('**/pom.xml') }}  # 根据项目文件生成唯一 key
         restore-keys: |
           ${{ runner.os }}-apt-
-    # 安装 Chrome（优先使用缓存）和ChromeDriver
+    # 安装Chrome和 ChromeDriver
     - name: Install Chrome & ChromeDriver
       run: |
         sudo apt-get update
