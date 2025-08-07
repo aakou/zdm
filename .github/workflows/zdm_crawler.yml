@@ -25,18 +25,13 @@ jobs:
         key: ${{ runner.os }}-apt-${{ hashFiles('**/pom.xml') }}  # 根据项目文件生成唯一 key
         restore-keys: |
           ${{ runner.os }}-apt-
-    # 安装 Chrome（优先使用缓存）
-    - name: Install Chrome
+    # 安装 Chrome（优先使用缓存）和ChromeDriver
+    - name: Install Chrome & ChromeDriver
       run: |
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
-    # 自动下载匹配版本的 ChromeDriver
-    - name: Install ChromeDriver
-      run: |
         CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
-        CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION")
-        echo "Detected Chrome version: $CHROME_VERSION, $CHROMEDRIVER_VERSION"
-        wget -O chromedriver.zip "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip"
+        wget -O chromedriver.zip "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/linux64/chromedriver-linux64.zip"
         unzip chromedriver.zip
         sudo mv chromedriver /usr/local/bin/
         sudo chmod +x /usr/local/bin/chromedriver
