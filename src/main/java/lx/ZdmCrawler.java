@@ -1,56 +1,44 @@
 package lx;
 
-import java.net.HttpCookie;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.TimeZone;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import javax.mail.Authenticator;
-import javax.mail.Message;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Session;
-import javax.mail.Transport;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-
-import org.apache.commons.lang3.StringUtils;
-import org.openqa.selenium.Cookie;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
-
-import com.alibaba.fastjson.JSONObject;
-import com.google.common.collect.Lists;
-
+import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.io.IORuntimeException;
 import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.http.ContentType;
 import cn.hutool.http.HttpException;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpUtil;
+import com.alibaba.fastjson.JSONObject;
+import com.google.common.collect.Lists;
 import lx.mapper.ZdmMapper;
 import lx.model.Zdm;
 import lx.utils.StreamUtils;
 import lx.utils.Utils;
+import org.apache.commons.lang3.StringUtils;
+import org.openqa.selenium.Cookie;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+
+import javax.mail.*;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+import java.net.HttpCookie;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static lx.utils.Const.WXPUSHER_URL;
 import static lx.utils.Const.ZDM_URL;
 
 public class ZdmCrawler {
+
+    private static Collection<HttpCookie> cookies = new ArrayList<>();
+    private static Date expiredDate = null;
 
     public static void main(String[] args) {
         //突然发现定环境变量名的时候一下子大写下划线,一下子小写驼峰. 考虑到之前已经有在用的用户了, 暂时不做修改
@@ -102,22 +90,22 @@ public class ZdmCrawler {
         //上次执行后未推送的优惠信息
         List<Zdm> unPush = ZdmMapper.unPush();
 
-        /**
-         * 什么值得买的cookie在未登录的状态下是由'__ckguid','x-waf-captcha-referer','w_tsfp'三段组成的
-         * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空, w_tsfp是靠访问probe.js动态生成
-         * 这里支持从selenium模拟浏览器行为自动获取cookie,也支持在环境变量里自定义固定的cookie值
-         */
-        HttpRequest request = HttpUtil.createGet("url").contentType(ContentType.JSON.getValue());
-        if (StringUtils.isNotBlank(cookie))
-            request.header("cookie", cookie);
-        else
-            request.cookie(buildCookies());
-
         //从网页上获取的优惠信息
         Stream<Zdm> crawled = ZDM_URL.stream().flatMap(url -> {
             List<Zdm> zdmPage = new ArrayList<>();
             for (int i = 1; i <= maxPageSize; i++) {
                 try {
+                    /**
+                     * 什么值得买的cookie在未登录的状态下是由'__ckguid','x-waf-captcha-referer','w_tsfp'三段组成的
+                     * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空, w_tsfp是靠访问probe.js动态生成
+                     * 这里支持从selenium模拟浏览器行为自动获取cookie,也支持在环境变量里自定义固定的cookie值
+                     */
+                    HttpRequest request = HttpUtil.createGet("url").contentType(ContentType.JSON.getValue());
+                    if (StringUtils.isNotBlank(cookie))
+                        request.header("cookie", cookie);
+                    else
+                        request.cookie(buildCookies());
+
                     String s = request.setUrl(url + i).execute().body();
                     List<Zdm> zdmPart = JSONObject.parseArray(s, Zdm.class);
                     zdmPart.forEach(zdm -> {
@@ -248,6 +236,16 @@ public class ZdmCrawler {
     }
 
     private static Collection<HttpCookie> buildCookies() {
+        //过期前20秒进行重新获取cookie
+        if (expiredDate != null && expiredDate.before(Date.from(Instant.now().minusSeconds(20)))) {
+            cookies = null;
+            expiredDate = null;
+            return buildCookies();
+        }
+
+        if (!CollectionUtil.isEmpty(cookies))
+            return cookies;
+
         ChromeOptions options = new ChromeOptions();
         options.addArguments("--headless");          // 无头模式
         options.addArguments("--disable-gpu");      // 禁用 GPU 加速（Linux 必备）
@@ -256,14 +254,16 @@ public class ZdmCrawler {
 
         WebDriver driver = new ChromeDriver(options);
         driver.get("https://faxian.smzdm.com/json_more");
-        Collection<HttpCookie> cookies = new ArrayList<>();
+        cookies = new ArrayList<>();
         cookies.add(new HttpCookie("x-waf-captcha-referer", ""));
         Cookie ckguid = driver.manage().getCookieNamed("__ckguid");
         if (ckguid != null)
             cookies.add(new HttpCookie("__ckguid", ckguid.getValue()));
         Cookie w_tsfp = driver.manage().getCookieNamed("w_tsfp");
-        if (w_tsfp != null)
+        if (w_tsfp != null) {
             cookies.add(new HttpCookie("w_tsfp", w_tsfp.getValue()));
+            expiredDate = w_tsfp.getExpiry();
+        }
         driver.quit();
         return cookies;
     }
