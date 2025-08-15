@@ -39,6 +39,7 @@ public class ZdmCrawler {
 
     private static Collection<HttpCookie> cookies = new ArrayList<>();
     private static Date expiredDate = null;
+    private static WebDriver driver = null;
 
     public static void main(String[] args) {
         //突然发现定环境变量名的时候一下子大写下划线,一下子小写驼峰. 考虑到之前已经有在用的用户了, 暂时不做修改
@@ -120,6 +121,8 @@ public class ZdmCrawler {
                                 .toLocalDateTime().toString());
                     });
                     zdmPage.addAll(zdmPart);
+
+                    System.out.println("第" + i + "页数据获取成功, 数据条数" + zdmPage.size());
                     //翻页的间隔时间(毫秒)
                     ThreadUtil.sleep(ThreadLocalRandom.current().nextInt(100, 1001));
                 } catch (IORuntimeException | HttpException e) {
@@ -236,8 +239,22 @@ public class ZdmCrawler {
     }
 
     private static Collection<HttpCookie> buildCookies() {
-        //过期前20秒进行重新获取cookie
-        if (expiredDate != null && expiredDate.before(Date.from(Instant.now().minusSeconds(20)))) {
+        if (driver == null) {
+            /**
+             * GitActions运行时, 已通过工作流配置好了ChromeDriver的路径
+             * 非GitActions运行时, 需要增加这段代码 System.setProperty("webdriver.chrome.driver", "xxxxxxx\\chromedriver.exe");
+             */
+            ChromeOptions options = new ChromeOptions();
+            options.addArguments("--headless");          // 无头模式
+            options.addArguments("--disable-gpu");      // 禁用 GPU 加速（Linux 必备）
+            options.addArguments("--no-sandbox");       // 禁用沙盒（CI 环境必备）
+            options.addArguments("--disable-dev-shm-usage"); // 避免 /dev/shm 不足
+            driver = new ChromeDriver(options);
+        }
+
+        //判断cookie即将过期时进行重新获取
+        Date date = Date.from(Instant.now().minusSeconds(30));
+        if (expiredDate != null && expiredDate.before(date)) {
             cookies = null;
             expiredDate = null;
             return buildCookies();
@@ -246,13 +263,6 @@ public class ZdmCrawler {
         if (!CollectionUtil.isEmpty(cookies))
             return cookies;
 
-        ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless");          // 无头模式
-        options.addArguments("--disable-gpu");      // 禁用 GPU 加速（Linux 必备）
-        options.addArguments("--no-sandbox");       // 禁用沙盒（CI 环境必备）
-        options.addArguments("--disable-dev-shm-usage"); // 避免 /dev/shm 不足
-
-        WebDriver driver = new ChromeDriver(options);
         driver.get("https://faxian.smzdm.com/json_more");
         cookies = new ArrayList<>();
         cookies.add(new HttpCookie("x-waf-captcha-referer", ""));
@@ -264,7 +274,7 @@ public class ZdmCrawler {
             cookies.add(new HttpCookie("w_tsfp", w_tsfp.getValue()));
             expiredDate = w_tsfp.getExpiry();
         }
-        driver.quit();
         return cookies;
     }
+
 }
