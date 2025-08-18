@@ -7,6 +7,7 @@ import cn.hutool.http.ContentType;
 import cn.hutool.http.HttpException;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpUtil;
+import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.collect.Lists;
 import lx.mapper.ZdmMapper;
@@ -95,40 +96,23 @@ public class ZdmCrawler {
         Stream<Zdm> crawled = ZDM_URL.stream().flatMap(url -> {
             List<Zdm> zdmPage = new ArrayList<>();
             for (int i = 1; i <= maxPageSize; i++) {
-                try {
-                    /**
-                     * 什么值得买的cookie在未登录的状态下是由'__ckguid','x-waf-captcha-referer','w_tsfp'三段组成的
-                     * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空, w_tsfp是靠访问probe.js动态生成
-                     * 这里支持从selenium模拟浏览器行为自动获取cookie,也支持在环境变量里自定义固定的cookie值
-                     */
-                    HttpRequest request = HttpUtil.createGet("url").contentType(ContentType.JSON.getValue());
-                    if (StringUtils.isNotBlank(cookie))
-                        request.header("cookie", cookie);
-                    else
-                        request.cookie(buildCookies());
+                List<Zdm> zdmPart = processCrawl(url + i, cookie, 3);
+                zdmPart.forEach(zdm -> {
+                    //评论和点值数量的值后面会跟着'k','w'这种字符,将它们转换一下方便后面过滤和排序
+                    zdm.setComments(Utils.strNumberFormat(zdm.getComments()));
+                    zdm.setVoted(Utils.strNumberFormat(zdm.getVoted()));
 
-                    String s = request.setUrl(url + i).execute().body();
-                    List<Zdm> zdmPart = JSONObject.parseArray(s, Zdm.class);
-                    zdmPart.forEach(zdm -> {
-                        //评论和点值数量的值后面会跟着'k','w'这种字符,将它们转换一下方便后面过滤和排序
-                        zdm.setComments(Utils.strNumberFormat(zdm.getComments()));
-                        zdm.setVoted(Utils.strNumberFormat(zdm.getVoted()));
+                    //转化为毫秒级时间戳
+                    String timestampStr = zdm.getTimesort() + "000";
+                    zdm.setArticle_time(Instant.ofEpochMilli(Long.parseLong(timestampStr))
+                            .atZone(zoneId)
+                            .toLocalDateTime().toString());
+                });
+                zdmPage.addAll(zdmPart);
 
-                        //转化为毫秒级时间戳
-                        String timestampStr = zdm.getTimesort() + "000";
-                        zdm.setArticle_time(Instant.ofEpochMilli(Long.parseLong(timestampStr))
-                                .atZone(zoneId)
-                                .toLocalDateTime().toString());
-                    });
-                    zdmPage.addAll(zdmPart);
-
-                    System.out.println("第" + i + "页数据获取成功, 数据条数" + zdmPage.size());
-                    //翻页的间隔时间(毫秒)
-                    ThreadUtil.sleep(ThreadLocalRandom.current().nextInt(100, 1001));
-                } catch (IORuntimeException | HttpException e) {
-                    //暂时的网络不通,会导致连接超时的异常,等待下次运行即可
-                    System.out.println("pageNumber:" + i + ", connect to zdm server timeout:" + e.getMessage());
-                }
+                System.out.println("第" + i + "页数据获取成功, 数据条数" + zdmPage.size());
+                //翻页的间隔时间(毫秒)
+                ThreadUtil.sleep(ThreadLocalRandom.current().nextInt(100, 1001));
             }
             return zdmPage.stream();
         });
@@ -136,6 +120,31 @@ public class ZdmCrawler {
         return Stream.concat(crawled, unPush.stream())  //两个stream合并,一起参与排序和去重操作
                 .sorted(Comparator.comparing(Zdm::getComments, Comparator.comparingInt(Integer::parseInt)).reversed())    //评论数量倒序,用LinkedHashSet保证有序
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static List<Zdm> processCrawl(String url, String cookie, int retry) {
+        /**
+         * 什么值得买的cookie在未登录的状态下是由'__ckguid','x-waf-captcha-referer','w_tsfp'三段组成的
+         * __ckguid是响应头的set-cookie里取下来的, x-waf-captcha-referer固定为空, w_tsfp是靠访问probe.js动态生成
+         * 这里支持从selenium模拟浏览器行为自动获取cookie,也支持在环境变量里自定义固定的cookie值
+         */
+        HttpRequest request = HttpUtil.createGet(url).contentType(ContentType.JSON.getValue());
+        if (StringUtils.isNotBlank(cookie))
+            request.header("cookie", cookie);
+        else
+            request.cookie(buildCookies());
+
+        try {
+            String s = request.setUrl(url).execute().body();
+            return JSONObject.parseArray(s, Zdm.class);
+        } catch (IORuntimeException | HttpException | JSONException e) {
+            //尝试重新获取cookie并重试接口, 重试次数耗尽则结束任务
+            if (retry > 0) {
+                clearCookie();
+                return processCrawl(url, cookie, retry - 1);
+            }
+            throw e;
+        }
     }
 
     private static List<Zdm> processFilter(Collection<Zdm> zdms, int minVoted, int minComments, boolean detail) {
@@ -255,8 +264,7 @@ public class ZdmCrawler {
         //判断cookie即将过期时进行重新获取
         Date date = Date.from(Instant.now().minusSeconds(30));
         if (expiredDate != null && expiredDate.before(date)) {
-            cookies = null;
-            expiredDate = null;
+            clearCookie();
             return buildCookies();
         }
 
@@ -275,6 +283,11 @@ public class ZdmCrawler {
             expiredDate = w_tsfp.getExpiry();
         }
         return cookies;
+    }
+
+    private static void clearCookie() {
+        cookies = null;
+        expiredDate = null;
     }
 
 }
