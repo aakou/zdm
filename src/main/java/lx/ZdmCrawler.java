@@ -59,6 +59,7 @@ public class ZdmCrawler {
 
         //根据各项规则执行过滤逻辑
         zdms = processFilter(zdms, minVoted, minComments, detail);
+        System.out.println("过滤后剩余数据条数" + zdms.size());
 
         //在推送之前先入库数据,pushed字段默认为0(未推送)
         ZdmMapper.saveOrUpdateBatch(zdms);
@@ -110,7 +111,7 @@ public class ZdmCrawler {
                 });
                 zdmPage.addAll(zdmPart);
 
-                System.out.println("第" + i + "页数据获取成功, 数据条数" + zdmPage.size());
+                System.out.println("第" + i + "页数据获取成功, 当前页数据条数" + zdmPart.size());
                 //翻页的间隔时间(毫秒)
                 ThreadUtil.sleep(ThreadLocalRandom.current().nextInt(100, 1001));
             }
@@ -135,11 +136,12 @@ public class ZdmCrawler {
             request.cookie(buildCookies());
 
         try {
-            String s = request.setUrl(url).execute().body();
+            String s = request.execute().body();
             return JSONObject.parseArray(s, Zdm.class);
         } catch (IORuntimeException | HttpException | JSONException e) {
             //尝试重新获取cookie并重试接口, 重试次数耗尽则结束任务
             if (retry > 0) {
+                System.out.println("接口调用失败,进行重试");
                 clearCookie();
                 return processCrawl(url, cookie, retry - 1);
             }
