@@ -1,45 +1,5 @@
 package lx;
 
-import java.net.HttpCookie;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.TimeZone;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeoutException;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import javax.mail.Authenticator;
-import javax.mail.Message;
-import javax.mail.PasswordAuthentication;
-import javax.mail.Session;
-import javax.mail.Transport;
-import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeMessage;
-
-import org.apache.commons.lang3.StringUtils;
-import org.openqa.selenium.Cookie;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
-
-import com.alibaba.fastjson.JSONException;
-import com.alibaba.fastjson.JSONObject;
-import com.google.common.collect.Lists;
-
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.io.IORuntimeException;
 import cn.hutool.core.thread.ThreadUtil;
@@ -47,10 +7,33 @@ import cn.hutool.http.ContentType;
 import cn.hutool.http.HttpException;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpUtil;
+import com.alibaba.fastjson.JSONException;
+import com.alibaba.fastjson.JSONObject;
+import com.google.common.collect.Lists;
 import lx.mapper.ZdmMapper;
 import lx.model.Zdm;
 import lx.utils.StreamUtils;
 import lx.utils.Utils;
+import org.apache.commons.lang3.StringUtils;
+import org.openqa.selenium.Cookie;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+
+import javax.mail.*;
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
+import java.net.HttpCookie;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static lx.utils.Const.WXPUSHER_URL;
 import static lx.utils.Const.ZDM_URL;
@@ -157,7 +140,8 @@ public class ZdmCrawler {
 
             String s = request.execute().body();
             return JSONObject.parseArray(s, Zdm.class);
-        } catch (IORuntimeException | HttpException | JSONException | TimeoutException e) {
+        } catch (IORuntimeException | HttpException | JSONException | java.util.concurrent.TimeoutException |
+                 org.openqa.selenium.TimeoutException e) {
             //尝试重新获取cookie并重试接口, 重试次数耗尽则结束任务
             if (retry > 0) {
                 System.out.println("接口调用失败,进行重试");
